@@ -69,7 +69,7 @@ The app will be available at `http://localhost:5173`.
 | :--- | :--- |
 | **Frontend** | React 19, TypeScript, Tailwind CSS v4, Zustand |
 | **Backend** | FastAPI, Python, WebSockets, aiosqlite |
-| **AI Models** | Gemini 2.0 Flash (Live Audio), Gemini 1.5 Flash (Text Extraction) |
+| **AI Models** | Gemini 2.5 Flash Live(Live Audio), Gemini 2.5 Flash (Text Extraction) |
 | **Database** | SQLite (Single-file, no external setup required) |
 
 ---
