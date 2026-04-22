@@ -1,35 +1,28 @@
-# 🌿 Ayurveda OPD Intelligence
+# Ayurveda OPD Intelligence 🌿
 
-![Banner](public/banner.png)
+An AI-powered Clinical Decision Support System (CDSS) for Ayurvedic Outpatient Departments. This application streamlines patient intake, doctor dictations, and post-visit follow-ups using real-time voice intelligence.
 
-[![GitHub license](https://img.shields.io/github/license/DeepakChauhanAI/OPD-Intelligence)](https://github.com/DeepakChauhanAI/OPD-Intelligence/blob/main/LICENSE)
-[![GitHub stars](https://img.shields.io/github/stars/DeepakChauhanAI/OPD-Intelligence)](https://github.com/DeepakChauhanAI/OPD-Intelligence/stargazers)
-[![GitHub issues](https://img.shields.io/github/issues/DeepakChauhanAI/OPD-Intelligence)](https://github.com/DeepakChauhanAI/OPD-Intelligence/issues)
-[![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=flat&logo=fastapi)](https://fastapi.tiangolo.com)
-[![React](https://img.shields.io/badge/React-20232A?style=flat&logo=react)](https://reactjs.org)
-[![Gemini](https://img.shields.io/badge/Google_Gemini-4285F4?style=flat&logo=google)](https://ai.google.dev/)
+## 🚀 Key Features
 
-**Ayurveda OPD Intelligence** is a production-grade, voice-first AI assistant designed to digitize the complete outpatient workflow for Ayurvedic practitioners. By combining real-time audio streaming via the **Gemini Multimodal Live API** with structured clinical data extraction, it allows doctors to focus on patients while the AI handles the documentation.
+- **Voice-to-Voice Patient Intake**: An empathetic AI assistant (Dhara) collects patient history, symptoms, and lifestyle details in English, Hindi, or Hinglish.
+- **Real-time Doctor Dictation**: Doctors can dictate clinical notes which are transcribed and structured in real-time using Gemini Multimodal Live.
+- **Clinical Data Extraction**: Automatically structures symptoms, diagnosis (Ayurvedic & ICD-11), herbal prescriptions, and lifestyle advice.
+- **Automated Patient Check-ins**: Generates personalized daily follow-up questions based on the doctor's prescription to track adherence and recovery.
+- **Persistent Electronic Health Records**: Full SQLite integration for patient history and visit records.
 
----
+## 🛠️ Technology Stack
 
-## ✨ Key Capabilities
+- **Frontend**: React, TypeScript, Vite, Tailwind CSS, Lucide React, Zustand.
+- **Backend**: FastAPI (Python), SQLite, WebSockets.
+- **AI/ML**: Google Gemini 2.0 (Pro & Flash), Multimodal Live API.
 
-- 🎙️ **Real-time Voice Intake**: Conducts structured patient interviews in English, Hindi, and Hinglish.
-- 🩺 **Clinical Data Extraction**: Automatically identifies symptoms, duration, severity, and dosha imbalances.
-- ✍️ **Doctor Dictation**: Converts unstructured doctor speech into standardized clinical notes and prescriptions.
-- 🚨 **Red Flag Detection**: Built-in safety net to identify emergency symptoms immediately.
-- 📊 **Patient Progress Tracking**: Monitors daily wellness through structured voice/text check-ins.
-- 💾 **Persistent Storage**: Full data persistence using SQLite, ensuring zero data loss across sessions.
+## 📋 Prerequisites
 
----
-
-## 🚀 Quick Start
-
-### Prerequisites
-- Python 3.9+
-- Node.js 18+
+- Node.js (v18+)
+- Python (3.9+)
 - Google Gemini API Key
+
+## ⚙️ Setup Instructions
 
 ### 1. Clone the Repository
 ```bash
@@ -37,63 +30,33 @@ git clone https://github.com/DeepakChauhanAI/OPD-Intelligence.git
 cd OPD-Intelligence
 ```
 
-### 2. Setup Backend
+### 2. Backend Setup
 ```bash
+# Create a virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
 # Install dependencies
 pip install -r requirements.txt
 
-# Configure environment
-# Create a .env file and add your GEMINI_API_KEY
-echo "GEMINI_API_KEY=your_key_here" > .env
-
-# Start the FastAPI server
-python server.py
+# Create .env file and add your API key
+echo "GEMINI_API_KEY=your_api_key_here" > .env
 ```
 
-### 3. Setup Frontend
+### 3. Frontend Setup
 ```bash
-# Install dependencies
 npm install
+```
 
-# Start the development server
+### 4. Running the Application
+```bash
+# Start the backend server
+python server.py
+
+# In a new terminal, start the frontend
 npm run dev
 ```
 
-The app will be available at `http://localhost:5173`.
-
----
-
-## 🛠️ Tech Stack
-
-| Component | Technology |
-| :--- | :--- |
-| **Frontend** | React 19, TypeScript, Tailwind CSS v4, Zustand |
-| **Backend** | FastAPI, Python, WebSockets, aiosqlite |
-| **AI Models** | Gemini 2.0 Flash (Live Audio), Gemini 1.5 Flash (Text Extraction) |
-| **Database** | SQLite (Single-file, no external setup required) |
-
----
-
-## 📐 System Architecture
-
-The application follows a modern decoupled architecture:
-1. **React Client**: Thin client handling audio I/O and state. No API keys exposed.
-2. **FastAPI Server**: Secure bridge for WebSockets and REST API. Manages database and LLM calls.
-3. **Gemini Live API**: Handles bidirectional real-time audio streaming.
-4. **SQLite Database**: Local persistence for patients, intakes, dictations, and transcripts.
-
----
-
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
----
-
-Developed with ❤️ for the Ayurvedic community.
+This project is licensed under the MIT License.
