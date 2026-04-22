@@ -31,3 +31,7 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+
+.code-review-graph/
+SYSTEM_FIXES.md
