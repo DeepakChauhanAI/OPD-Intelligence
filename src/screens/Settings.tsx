@@ -1,6 +1,6 @@
 /**
  * Settings Screen
- * API key config, voice mode, language, WS endpoint
+ * Backend connection, voice mode, language, WS endpoint
  */
 
 import { useState } from "react";
@@ -207,12 +207,14 @@ export function SettingsScreen() {
               onClick={() =>
                 setLocalSettings((s) => ({ ...s, autoSpeak: !s.autoSpeak }))
               }
-              className={`relative h-6 w-11 rounded-full transition-colors ${localSettings.autoSpeak ? "bg-violet-500" : "bg-slate-200"
-                }`}
+              className={`relative h-6 w-11 rounded-full transition-colors ${
+                localSettings.autoSpeak ? "bg-violet-500" : "bg-slate-200"
+              }`}
             >
               <span
-                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${localSettings.autoSpeak ? "translate-x-5" : "translate-x-0.5"
-                  }`}
+                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                  localSettings.autoSpeak ? "translate-x-5" : "translate-x-0.5"
+                }`}
               />
             </button>
           </div>
@@ -237,14 +239,16 @@ export function SettingsScreen() {
                   interruptMode: !s.interruptMode,
                 }))
               }
-              className={`relative h-6 w-11 rounded-full transition-colors ${localSettings.interruptMode ? "bg-violet-500" : "bg-slate-200"
-                }`}
+              className={`relative h-6 w-11 rounded-full transition-colors ${
+                localSettings.interruptMode ? "bg-violet-500" : "bg-slate-200"
+              }`}
             >
               <span
-                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${localSettings.interruptMode
-                  ? "translate-x-5"
-                  : "translate-x-0.5"
-                  }`}
+                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                  localSettings.interruptMode
+                    ? "translate-x-5"
+                    : "translate-x-0.5"
+                }`}
               />
             </button>
           </div>
@@ -280,10 +284,11 @@ export function SettingsScreen() {
               onClick={() =>
                 setLocalSettings((s) => ({ ...s, language: lang.id }))
               }
-              className={`rounded-xl border-2 p-3 text-center transition-all ${localSettings.language === lang.id
-                ? "border-emerald-400 bg-emerald-50"
-                : "border-slate-200 hover:border-slate-300"
-                }`}
+              className={`rounded-xl border-2 p-3 text-center transition-all ${
+                localSettings.language === lang.id
+                  ? "border-emerald-400 bg-emerald-50"
+                  : "border-slate-200 hover:border-slate-300"
+              }`}
             >
               <p className="text-2xl mb-1">{lang.flag}</p>
               <p className="text-sm font-semibold text-slate-700">

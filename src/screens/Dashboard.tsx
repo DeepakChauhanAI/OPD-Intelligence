@@ -16,8 +16,8 @@ import { Button } from "../components/ui/Button";
 import { useAppStore } from "../store/useAppStore";
 
 const DOSHA_COLORS: Record<string, string> = {
-  vata: "bg-sky-100 text-sky-700",
-  pitta: "bg-orange-100 text-orange-700",
+  vata: "bg-blue-100 text-blue-700",
+  pitta: "bg-amber-100 text-amber-700",
   kapha: "bg-emerald-100 text-emerald-700",
 };
 
@@ -26,7 +26,7 @@ const QUICK_ACTIONS = [
     label: "New Patient Intake",
     screen: "intake" as const,
     icon: <Users size={18} />,
-    color: "from-violet-500 to-indigo-600",
+    color: "from-blue-500 to-blue-600",
   },
   {
     label: "Doctor Dictation",
@@ -49,7 +49,6 @@ export function Dashboard() {
     checkinList,
     setScreen,
     notifications,
-    settings,
     fetchPatients,
   } = useAppStore();
 
@@ -87,9 +86,6 @@ export function Dashboard() {
 
   const recentPatients = intakeList.slice(0, 5);
   const activeNotifications = notifications;
-
-  const hasApiKey = !!settings.apiKey;
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -127,28 +123,6 @@ export function Dashboard() {
         </div>
       </div>
 
-      {/* API Key warning */}
-      {!hasApiKey && (
-        <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-          <AlertCircle size={18} className="text-amber-600 mt-0.5 shrink-0" />
-          <div className="flex-1">
-            <p className="text-sm font-semibold text-amber-800">
-              API Key Required
-            </p>
-            <p className="text-xs text-amber-600 mt-0.5">
-              Configure your Gemini API key in Settings to enable AI features.
-            </p>
-          </div>
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => setScreen("settings")}
-          >
-            Configure
-          </Button>
-        </div>
-      )}
-
       {/* Emergency banner */}
       {emergencyCount > 0 && (
         <div className="flex items-center gap-3 rounded-2xl border-2 border-red-400 bg-red-50 p-4 animate-pulse">
@@ -174,8 +148,8 @@ export function Dashboard() {
             label: "Today's Patients",
             value: todayIntakes,
             icon: <Users size={20} />,
-            color: "text-violet-600",
-            bg: "bg-violet-50",
+            color: "text-blue-600",
+            bg: "bg-blue-50",
             trend: "+2 vs yesterday",
           },
           {
@@ -286,7 +260,7 @@ export function Dashboard() {
                   key={patient.id}
                   className="flex items-center gap-3 rounded-xl bg-slate-50 p-3 hover:bg-slate-100 transition-colors"
                 >
-                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-violet-100 to-indigo-100 text-sm font-bold text-violet-600">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-blue-100 to-indigo-100 text-sm font-bold text-blue-600">
                     {patient.name?.[0]?.toUpperCase() || "?"}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -305,7 +279,7 @@ export function Dashboard() {
                       <span
                         className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full capitalize ${
                           DOSHA_COLORS[patient.dosha.split("-")[0]] ||
-                          "bg-violet-100 text-violet-600"
+                          "bg-blue-100 text-blue-600"
                         }`}
                       >
                         {patient.dosha}
@@ -320,7 +294,7 @@ export function Dashboard() {
 
         {/* Ayurveda Daily Wisdom */}
         <Card className="relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50 opacity-60" />
+          <div className="absolute inset-0 bg-gradient-to-br from-teal-50 via-blue-50 to-teal-50 opacity-60" />
           <div className="relative z-10">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">

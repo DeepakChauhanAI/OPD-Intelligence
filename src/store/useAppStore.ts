@@ -17,6 +17,14 @@ interface AppState {
   currentScreen: Screen;
   setScreen: (s: Screen) => void;
 
+  // Sidebar
+  sidebarCollapsed: boolean;
+  setSidebarCollapsed: (c: boolean) => void;
+
+  // Selected intake for historical viewing
+  selectedIntakeId: string | null;
+  setSelectedIntakeId: (id: string | null) => void;
+
   // Settings
   settings: AppSettings;
   updateSettings: (s: Partial<AppSettings>) => void;
@@ -63,7 +71,6 @@ interface AppState {
 // ─── Default Settings ─────────────────────────────────────────────────────────
 
 const defaultSettings: AppSettings = {
-  apiKey: (import.meta as any).env?.VITE_GEMINI_API_KEY || "",
   wsEndpoint: "ws://localhost:8000/ws/voice",
   language: "hinglish",
   autoSpeak: true,
@@ -76,8 +83,23 @@ export const useAppStore = create<AppState>((set, _get) => ({
   // Navigation
   currentScreen: "dashboard",
   setScreen: (s) => {
-    set({ currentScreen: s, selectedPatient: null });
+    set({ currentScreen: s });
   },
+
+  // Sidebar
+  sidebarCollapsed:
+    typeof window !== "undefined" &&
+    localStorage.getItem("sidebar-collapsed") === "true",
+  setSidebarCollapsed: (collapsed: boolean) => {
+    set({ sidebarCollapsed: collapsed });
+    if (typeof window !== "undefined") {
+      localStorage.setItem("sidebar-collapsed", collapsed ? "true" : "false");
+    }
+  },
+
+  // Selected intake for historical viewing
+  selectedIntakeId: null,
+  setSelectedIntakeId: (id) => set({ selectedIntakeId: id }),
 
   // Settings
   settings: defaultSettings,
@@ -112,9 +134,19 @@ export const useAppStore = create<AppState>((set, _get) => ({
   // Dictation
   dictationList: [],
   addDictation: (entry) =>
-    set((state) => ({
-      dictationList: [entry, ...state.dictationList],
-    })),
+    set((state) => {
+      const exists = state.dictationList.some((d) => d.id === entry.id);
+      if (exists) {
+        return {
+          dictationList: state.dictationList.map((d) =>
+            d.id === entry.id ? { ...d, ...entry } : d,
+          ),
+        };
+      }
+      return {
+        dictationList: [entry, ...state.dictationList],
+      };
+    }),
   updateDictation: (id, update) =>
     set((state) => ({
       dictationList: state.dictationList.map((d) =>

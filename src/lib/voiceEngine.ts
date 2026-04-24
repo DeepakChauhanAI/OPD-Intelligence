@@ -8,7 +8,6 @@ import type { VoiceEvent, VoiceEventHandler } from "../types";
 
 interface VoiceEngineConfig {
   wsEndpoint: string;
-  apiKey: string;
   language: string;
   autoSpeak: boolean;
   interruptMode: boolean;
@@ -146,6 +145,12 @@ export class VoiceEngine {
       case "turn_complete":
         this.emit({ type: "turn_complete" });
         this.pendingTurnComplete = true;
+        break;
+      case "summary_detected":
+        this.emit({ type: "summary_detected", text: msg.text });
+        break;
+      case "confirmation":
+        this.emit({ type: "confirmation", value: msg.value });
         break;
       case "session_ended":
         this.emit({ type: "status", status: "idle" });
@@ -468,11 +473,7 @@ export class VoiceEngine {
 
   // ── TTS (Browser SpeechSynthesis) ─────────────────────────────────────────
 
-  speakText(
-    text: string,
-    language: string = "en",
-    onEnd?: () => void,
-  ): void {
+  speakText(text: string, language: string = "en", onEnd?: () => void): void {
     if (!window.speechSynthesis) return;
 
     window.speechSynthesis.cancel();

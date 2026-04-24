@@ -8,7 +8,6 @@
 
 export async function extractIntake(
   transcript: string,
-  _apiKey: string, // kept for interface compat, not used
   language: string = "en",
   patientId?: string,
 ): Promise<{ success: boolean; data?: any; error?: string }> {
@@ -34,7 +33,6 @@ export async function extractIntake(
 
 export async function structureDictation(
   transcript: string,
-  _apiKey: string, // kept for interface compat, not used
   patientId?: string,
 ): Promise<{ success: boolean; data?: any; error?: string }> {
   try {
@@ -59,7 +57,6 @@ export async function structureDictation(
 
 export async function processVisit(
   transcript: string,
-  _apiKey: string, // kept for interface compat, not used
   patientId?: string,
 ): Promise<{
   success: boolean;
@@ -134,6 +131,45 @@ export async function transcribeDictation(
   }
 }
 
+// ─── Process Dictation (WebSocket flow → structured extraction) ───────
+
+export async function processDictation(
+  transcript: string,
+  patientId?: string,
+): Promise<{
+  success: boolean;
+  visit_id?: string;
+  extracted?: any;
+  needs_review?: string[];
+  confidence?: string;
+  checkin_templates_generated?: number;
+  error?: string;
+}> {
+  try {
+    const res = await fetch("/api/dictation/process", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ transcript, patient_id: patientId }),
+    });
+
+    const json = await res.json();
+    if (!res.ok || !json.success) {
+      return { success: false, error: json.error || `HTTP ${res.status}` };
+    }
+
+    return {
+      success: true,
+      visit_id: json.visit_id,
+      extracted: json.extracted,
+      needs_review: json.needs_review,
+      confidence: json.confidence,
+      checkin_templates_generated: json.checkin_templates_generated,
+    };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
 // ─── Confirm / Finalize Visit ──────────────────────────────────────────────────
 
 export async function confirmVisit(
@@ -174,7 +210,6 @@ export async function confirmVisit(
 
 export async function analyzeCheckin(
   responses: { question: string; answer: string }[],
-  _apiKey: string, // kept for interface compat, not used
   patientId?: string,
 ): Promise<{ success: boolean; data?: any; error?: string }> {
   try {
@@ -290,7 +325,6 @@ interface PostVisitResponse {
 
 export async function analyzePostVisitCheckin(
   responses: PostVisitResponse[],
-  _apiKey: string,
   patientId?: string,
 ): Promise<{ success: boolean; data?: any; error?: string }> {
   try {
@@ -438,6 +472,26 @@ export async function getPatientIntakeSummary(patientId: string): Promise<{
       return { success: false, error: json.error || `HTTP ${res.status}` };
     }
     return { success: true, intake: json.intake ?? null };
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+}
+
+/**
+ * Get all historical intake records for a patient.
+ */
+export async function getPatientIntakes(patientId: string): Promise<{
+  success: boolean;
+  intakes?: PatientIntakeSummary[];
+  error?: string;
+}> {
+  try {
+    const res = await fetch(`/api/patients/${patientId}/intakes`);
+    const json = await res.json();
+    if (!res.ok) {
+      return { success: false, error: json.error || `HTTP ${res.status}` };
+    }
+    return { success: true, intakes: json.intakes || [] };
   } catch (err) {
     return { success: false, error: String(err) };
   }

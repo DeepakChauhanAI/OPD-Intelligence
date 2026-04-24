@@ -22,7 +22,6 @@ export type SessionStatus =
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
 export interface AppSettings {
-  apiKey: string;
   wsEndpoint: string;
   language: Language;
   autoSpeak: boolean;
@@ -145,7 +144,7 @@ export interface DictationEntry {
   patientId?: string; // Links to a patient record
   timestamp: string;
   rawTranscript: string;
-  structuredNote?: any; // Can be StructuredNote (legacy) or VisitRecord (new)
+  structuredNote?: any; // Structured dictation or visit data
   status: "recording" | "processing" | "done" | "error";
 }
 
@@ -314,7 +313,9 @@ export type VoiceEvent =
       fields: Record<string, string>;
     }
   | { type: "generating_summary" }
-  | { type: "transcript_file"; filename: string };
+  | { type: "transcript_file"; filename: string }
+  | { type: "summary_detected"; text?: string }
+  | { type: "confirmation"; value: string };
 
 export type VoiceEventHandler = (event: VoiceEvent) => void;
 
@@ -349,7 +350,9 @@ export interface BeaconMessage {
     | "session_ended"
     | "error"
     | "clinical_summary"
-    | "generating_summary";
+    | "generating_summary"
+    | "summary_detected"
+    | "confirmation";
   status?: string;
   session_id?: string;
   speaking?: boolean;
@@ -360,6 +363,7 @@ export interface BeaconMessage {
   narrative?: string;
   fields?: Record<string, string>;
   raw?: string;
+  value?: string;
 }
 
 export interface HealthResponse {

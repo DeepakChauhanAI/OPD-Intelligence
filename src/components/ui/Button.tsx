@@ -15,12 +15,11 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variants = {
-  primary:
-    "bg-violet-600 hover:bg-violet-700 text-white shadow-sm shadow-violet-200",
+  primary: "bg-blue-600 hover:bg-blue-700 text-white shadow-sm shadow-blue-200",
   secondary:
     "bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 shadow-sm",
   danger: "bg-red-600 hover:bg-red-700 text-white shadow-sm shadow-red-200",
-  ghost: "bg-transparent hover:bg-slate-100 text-slate-600",
+  ghost: "bg-transparent hover:bg-blue-50 text-blue-600",
   emergency:
     "bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-300 animate-pulse",
   success:
@@ -49,7 +48,7 @@ export function Button({
       {...props}
       disabled={disabled || loading}
       className={cn(
-        "inline-flex items-center gap-2 font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-violet-400 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95",
+        "inline-flex items-center gap-2 font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95",
         variants[variant],
         sizes[size],
         className,

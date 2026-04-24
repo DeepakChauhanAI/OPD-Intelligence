@@ -160,7 +160,6 @@ export function DailyCheckinScreen() {
   useEffect(() => {
     engineRef.current = new VoiceEngine({
       wsEndpoint: settings.wsEndpoint,
-      apiKey: settings.apiKey,
       language: settings.language,
       autoSpeak: settings.autoSpeak,
       interruptMode: settings.interruptMode,
@@ -276,22 +275,12 @@ export function DailyCheckinScreen() {
   };
 
   const handleAnalyze = async (allResponses: CheckinResponse[]) => {
-    if (!settings.apiKey) {
-      addNotification({
-        type: "error",
-        title: "API Key Missing",
-        message: "Configure Gemini API key in Settings.",
-      });
-      return;
-    }
-
     setIsAnalyzing(true);
     setPhase("done");
 
     try {
       const result = await analyzeCheckin(
         allResponses.map((r) => ({ question: r.question, answer: r.answer })),
-        settings.apiKey,
         selectedPatient?.id,
       );
 
@@ -437,7 +426,7 @@ export function DailyCheckinScreen() {
               </div>
 
               {/* Question Card */}
-              <Card glow>
+              <Card active>
                 <div className="mb-4">
                   <Badge variant="dosha" className="mb-3">
                     Question {currentQuestion + 1}
@@ -604,7 +593,7 @@ export function DailyCheckinScreen() {
 
         {/* Right: History */}
         <div className="lg:col-span-2 space-y-4">
-          <Card>
+          <Card active>
             <CardHeader>
               <CardTitle>Check-in History</CardTitle>
               <Badge variant="info">{checkinList.length}</Badge>

@@ -1,4 +1,4 @@
-import { AlertTriangle, Phone, X } from 'lucide-react';
+import { AlertTriangle, Phone, X } from "lucide-react";
 
 interface EmergencyAlertProps {
   reason: string;
@@ -6,7 +6,11 @@ interface EmergencyAlertProps {
   onDismiss: () => void;
 }
 
-export function EmergencyAlert({ reason, action, onDismiss }: EmergencyAlertProps) {
+export function EmergencyAlert({
+  reason,
+  action,
+  onDismiss,
+}: EmergencyAlertProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <div className="w-full max-w-md rounded-3xl border-2 border-red-500 bg-white p-6 shadow-2xl animate-bounce-in">
@@ -17,8 +21,12 @@ export function EmergencyAlert({ reason, action, onDismiss }: EmergencyAlertProp
               <AlertTriangle size={24} />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-red-700">🚨 EMERGENCY ALERT</h2>
-              <p className="text-xs text-red-500">Immediate medical attention required</p>
+              <h2 className="text-lg font-bold text-red-700">
+                🚨 EMERGENCY ALERT
+              </h2>
+              <p className="text-xs text-red-500">
+                Immediate medical attention required
+              </p>
             </div>
           </div>
           <button
@@ -32,11 +40,15 @@ export function EmergencyAlert({ reason, action, onDismiss }: EmergencyAlertProp
         {/* Content */}
         <div className="space-y-3 mb-5">
           <div className="rounded-xl bg-red-50 p-3 border border-red-100">
-            <p className="text-sm font-medium text-red-800">Red Flag Detected:</p>
+            <p className="text-sm font-medium text-red-800">
+              Red Flag Detected:
+            </p>
             <p className="text-sm text-red-700 mt-1">{reason}</p>
           </div>
           <div className="rounded-xl bg-amber-50 p-3 border border-amber-100">
-            <p className="text-sm font-medium text-amber-800">Action Required:</p>
+            <p className="text-sm font-medium text-amber-800">
+              Action Required:
+            </p>
             <p className="text-sm text-amber-700 mt-1">{action}</p>
           </div>
         </div>

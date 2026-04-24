@@ -4,12 +4,12 @@
  * Fetches patient list from backend API.
  */
 
-import { useState, useEffect } from 'react';
-import { UserPlus, Users, Search, ChevronRight, ArrowLeft } from 'lucide-react';
-import { Card, CardHeader, CardTitle } from './ui/Card';
-import { Button } from './ui/Button';
-import { useAppStore } from '../store/useAppStore';
-import type { SelectedPatient } from '../types';
+import { useState, useEffect } from "react";
+import { UserPlus, Users, Search, ChevronRight, ArrowLeft } from "lucide-react";
+import { Card, CardHeader, CardTitle } from "./ui/Card";
+import { Button } from "./ui/Button";
+import { useAppStore } from "../store/useAppStore";
+import type { SelectedPatient } from "../types";
 
 interface PatientSelectorProps {
   title: string;
@@ -17,18 +17,31 @@ interface PatientSelectorProps {
   onSelect: (patient: SelectedPatient) => void;
 }
 
-export function PatientSelector({ title, subtitle, onSelect }: PatientSelectorProps) {
+export function PatientSelector({
+  title,
+  subtitle,
+  onSelect,
+}: PatientSelectorProps) {
   const { backendPatients, intakeList, fetchPatients } = useAppStore();
-  const [mode, setMode] = useState<'choose' | 'list'>('choose');
-  const [search, setSearch] = useState('');
+  const [mode, setMode] = useState<"choose" | "list">("choose");
+  const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
-  const [newPatientName, setNewPatientName] = useState('');
+  const [newPatientName, setNewPatientName] = useState("");
   const [showNewForm, setShowNewForm] = useState(false);
 
   // Merge backend patients with local intake list for comprehensive list
   const allPatients = (() => {
-    const map = new Map<string, { id: string; name: string; age?: number | null; gender?: string | null; chiefComplaint?: string }>();
-    
+    const map = new Map<
+      string,
+      {
+        id: string;
+        name: string;
+        age?: number | null;
+        gender?: string | null;
+        chiefComplaint?: string;
+      }
+    >();
+
     // Backend patients first (authoritative)
     for (const p of backendPatients) {
       map.set(p.id, {
@@ -39,10 +52,10 @@ export function PatientSelector({ title, subtitle, onSelect }: PatientSelectorPr
         chiefComplaint: p.chiefComplaint,
       });
     }
-    
+
     // Then local intake list (may have patients not yet synced)
     for (const p of intakeList) {
-      if (!map.has(p.id) && !map.has(p.patientId || '')) {
+      if (!map.has(p.id) && !map.has(p.patientId || "")) {
         map.set(p.id, {
           id: p.id,
           name: p.name,
@@ -52,7 +65,7 @@ export function PatientSelector({ title, subtitle, onSelect }: PatientSelectorPr
         });
       }
     }
-    
+
     return Array.from(map.values());
   })();
 
@@ -61,7 +74,7 @@ export function PatientSelector({ title, subtitle, onSelect }: PatientSelectorPr
     const q = search.toLowerCase();
     return (
       p.name.toLowerCase().includes(q) ||
-      (p.chiefComplaint || '').toLowerCase().includes(q)
+      (p.chiefComplaint || "").toLowerCase().includes(q)
     );
   });
 
@@ -80,7 +93,7 @@ export function PatientSelector({ title, subtitle, onSelect }: PatientSelectorPr
     onSelect(patient);
   };
 
-  const handleExistingPatient = (p: typeof allPatients[0]) => {
+  const handleExistingPatient = (p: (typeof allPatients)[0]) => {
     const patient: SelectedPatient = {
       id: p.id,
       name: p.name,
@@ -100,7 +113,7 @@ export function PatientSelector({ title, subtitle, onSelect }: PatientSelectorPr
         <p className="text-sm text-slate-500 mt-0.5">{subtitle}</p>
       </div>
 
-      {mode === 'choose' && !showNewForm && (
+      {mode === "choose" && !showNewForm && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-lg">
           {/* New Patient */}
           <button
@@ -112,22 +125,27 @@ export function PatientSelector({ title, subtitle, onSelect }: PatientSelectorPr
             </div>
             <div className="text-center">
               <p className="text-base font-bold text-slate-800">New Patient</p>
-              <p className="text-xs text-slate-500 mt-1">Start a fresh intake</p>
+              <p className="text-xs text-slate-500 mt-1">
+                Start a fresh intake
+              </p>
             </div>
           </button>
 
           {/* Existing Patient */}
           <button
-            onClick={() => setMode('list')}
+            onClick={() => setMode("list")}
             className="group flex flex-col items-center gap-4 rounded-2xl border-2 border-dashed border-violet-200 bg-violet-50/50 p-8 transition-all hover:border-violet-400 hover:bg-violet-50 hover:shadow-lg"
           >
             <div className="h-14 w-14 rounded-2xl bg-violet-100 flex items-center justify-center text-violet-600 group-hover:scale-110 transition-transform">
               <Users size={28} />
             </div>
             <div className="text-center">
-              <p className="text-base font-bold text-slate-800">Existing Patient</p>
+              <p className="text-base font-bold text-slate-800">
+                Existing Patient
+              </p>
               <p className="text-xs text-slate-500 mt-1">
-                {allPatients.length} patient{allPatients.length !== 1 ? 's' : ''} on record
+                {allPatients.length} patient
+                {allPatients.length !== 1 ? "s" : ""} on record
               </p>
             </div>
           </button>
@@ -152,17 +170,25 @@ export function PatientSelector({ title, subtitle, onSelect }: PatientSelectorPr
                 type="text"
                 value={newPatientName}
                 onChange={(e) => setNewPatientName(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleNewPatient()}
+                onKeyDown={(e) => e.key === "Enter" && handleNewPatient()}
                 placeholder="Enter patient name"
                 className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300"
                 autoFocus
               />
             </div>
             <div className="flex gap-2">
-              <Button onClick={handleNewPatient} icon={<ChevronRight size={14} />} className="flex-1">
+              <Button
+                onClick={handleNewPatient}
+                icon={<ChevronRight size={14} />}
+                className="flex-1"
+              >
                 Start Intake
               </Button>
-              <Button variant="ghost" onClick={() => setShowNewForm(false)} icon={<ArrowLeft size={14} />}>
+              <Button
+                variant="ghost"
+                onClick={() => setShowNewForm(false)}
+                icon={<ArrowLeft size={14} />}
+              >
                 Back
               </Button>
             </div>
@@ -171,18 +197,28 @@ export function PatientSelector({ title, subtitle, onSelect }: PatientSelectorPr
       )}
 
       {/* Existing Patient List */}
-      {mode === 'list' && (
+      {mode === "list" && (
         <div className="space-y-4 max-w-lg animate-fade-in">
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={() => setMode('choose')} icon={<ArrowLeft size={14} />}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setMode("choose")}
+              icon={<ArrowLeft size={14} />}
+            >
               Back
             </Button>
-            <h2 className="text-lg font-semibold text-slate-800">Select Patient</h2>
+            <h2 className="text-lg font-semibold text-slate-800">
+              Select Patient
+            </h2>
           </div>
 
           {/* Search */}
           <div className="relative">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Search
+              size={16}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+            />
             <input
               type="text"
               value={search}
@@ -202,14 +238,16 @@ export function PatientSelector({ title, subtitle, onSelect }: PatientSelectorPr
             <Card className="text-center py-8">
               <Users size={32} className="text-slate-200 mx-auto mb-2" />
               <p className="text-sm text-slate-500">
-                {search ? 'No patients match your search' : 'No patients on record yet'}
+                {search
+                  ? "No patients match your search"
+                  : "No patients on record yet"}
               </p>
               <Button
                 variant="secondary"
                 size="sm"
                 className="mt-3"
                 onClick={() => {
-                  setMode('choose');
+                  setMode("choose");
                   setShowNewForm(true);
                 }}
               >
@@ -228,13 +266,17 @@ export function PatientSelector({ title, subtitle, onSelect }: PatientSelectorPr
                     {p.name.charAt(0).toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-slate-800 truncate">{p.name}</p>
+                    <p className="text-sm font-semibold text-slate-800 truncate">
+                      {p.name}
+                    </p>
                     <div className="flex items-center gap-2 mt-0.5">
                       {p.age && (
                         <span className="text-xs text-slate-400">{p.age}y</span>
                       )}
                       {p.gender && (
-                        <span className="text-xs text-slate-400 capitalize">{p.gender}</span>
+                        <span className="text-xs text-slate-400 capitalize">
+                          {p.gender}
+                        </span>
                       )}
                       {p.chiefComplaint && (
                         <span className="text-xs text-slate-500 truncate">

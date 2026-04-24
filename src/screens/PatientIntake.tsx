@@ -51,10 +51,12 @@ export function PatientIntakeScreen() {
   const [summaryPreview, setSummaryPreview] = useState("");
   const confirmationResponseRef = useRef<string>("");
   const awaitingConfirmationRef = useRef(false);
-  const performExtractRef = useRef<() => Promise<{
-    success: boolean;
-    data?: ClinicalExtraction;
-  }>>(async () => ({ success: false }));
+  const performExtractRef = useRef<
+    () => Promise<{
+      success: boolean;
+      data?: ClinicalExtraction;
+    }>
+  >(async () => ({ success: false }));
 
   const engineRef = useRef<VoiceEngine | null>(null);
   const transcriptRef = useRef("");
@@ -67,15 +69,15 @@ export function PatientIntakeScreen() {
       ? "listening"
       : sessionStatus === "speaking"
         ? "model_speaking"
-      : sessionStatus === "recording"
-        ? "listening"
-        : sessionStatus === "connected"
-          ? "connected"
-          : sessionStatus === "connecting"
-            ? "connecting"
-          : sessionStatus === "error"
-              ? "error"
-              : "disconnected";
+        : sessionStatus === "recording"
+          ? "listening"
+          : sessionStatus === "connected"
+            ? "connected"
+            : sessionStatus === "connecting"
+              ? "connecting"
+              : sessionStatus === "error"
+                ? "error"
+                : "disconnected";
   const orbStatus =
     conversationStarted && sessionStatus === "idle"
       ? "recording"
@@ -85,7 +87,6 @@ export function PatientIntakeScreen() {
   useEffect(() => {
     engineRef.current = new VoiceEngine({
       wsEndpoint: settings.wsEndpoint,
-      apiKey: settings.apiKey,
       language: settings.language,
       autoSpeak: settings.autoSpeak,
       interruptMode: settings.interruptMode,
@@ -101,48 +102,35 @@ export function PatientIntakeScreen() {
           );
         } else if (event.type === "transcript_partial") {
           setPartialTranscript(event.text);
-        } else if (event.type === "transcript_final") {
-          // ── Auto-detect Dhara's spoken summary ──────────────────
-          const isDharaTurn = /^Dhara\s*:/i.test(event.text);
-          if (isDharaTurn && !awaitingConfirmationRef.current) {
-            if (isDharaSummaryTurn(event.text)) {
-              // Dhara just delivered her summary — enter confirmation mode
-              setSummaryDetectedAuto(true);
-              setAwaitingConfirmation(true);
-            }
-          }
-
-          // ── Handle patient confirmation during awaiting mode ────
-          if (awaitingConfirmationRef.current) {
-            const isPatientTurn = /^Patient\s*:/i.test(event.text);
-            if (isPatientTurn) {
-              const patientWords = event.text.replace(/^Patient\s*:\s*/i, "").trim();
-              const normalizedConfirmation = normalizeConfirmation(patientWords);
-              confirmationResponseRef.current = normalizedConfirmation;
-              if (normalizedConfirmation === "Yes") {
-                void (async () => {
-                  setAwaitingConfirmation(false);
-                  const result = await performExtractRef.current();
-                  if (result.success) {
-                    setHasSubmitted(true);
-                    setConversationStarted(false);
-                    engineRef.current?.disconnect();
-                    setSessionStatus("idle");
-                  }
-                })();
-              } else if (normalizedConfirmation === "No") {
-                addNotification({
-                  type: "info",
-                  title: "Summary Rejected",
-                  message: "Patient said No. Intake remains open.",
-                });
-                setAwaitingConfirmation(false);
-                setSummaryDetectedAuto(false);
-                setSummaryPreview("");
+        } else if (event.type === "summary_detected") {
+          // Dhara just delivered her summary — backend detected it
+          setSummaryDetectedAuto(true);
+          setAwaitingConfirmation(true);
+          setSummaryPreview(event.text || "");
+        } else if (event.type === "confirmation") {
+          // Patient confirmation detected by backend
+          if (event.value === "Yes") {
+            void (async () => {
+              setAwaitingConfirmation(false);
+              const result = await performExtractRef.current();
+              if (result.success) {
+                setHasSubmitted(true);
+                setConversationStarted(false);
+                engineRef.current?.disconnect();
+                setSessionStatus("idle");
               }
-            }
+            })();
+          } else if (event.value === "No") {
+            addNotification({
+              type: "info",
+              title: "Summary Rejected",
+              message: "Patient said No. Intake remains open.",
+            });
+            setAwaitingConfirmation(false);
+            setSummaryDetectedAuto(false);
+            setSummaryPreview("");
           }
-
+        } else if (event.type === "transcript_final") {
           // Always append to transcript (never skip)
           transcriptRef.current = transcriptRef.current
             ? `${transcriptRef.current}\n${event.text}`
@@ -164,50 +152,6 @@ export function PatientIntakeScreen() {
       engineRef.current?.disconnect();
     };
   }, [settings]);
-
-  const normalizeConfirmation = (text: string) => {
-    const lower = text.trim().toLowerCase();
-    if (
-      lower === "yes" ||
-      lower.startsWith("yes ") ||
-      lower.startsWith("haan") ||
-      lower.startsWith("han") ||
-      lower.startsWith("haan ji") ||
-      lower.startsWith("ji haan")
-    ) {
-      return "Yes";
-    }
-    if (
-      lower === "no" ||
-      lower.startsWith("no ") ||
-      lower.startsWith("nahi") ||
-      lower.startsWith("nahin") ||
-      lower.startsWith("na")
-    ) {
-      return "No";
-    }
-    return text.trim();
-  };
-
-  /**
-   * Detect whether a Dhara transcript turn contains her spoken summary.
-   * Matches the system prompt's closing: summarize in Hinglish then ask
-   * "Kya ye vivran aapke anusaar sahi hai?"
-   */
-  const isDharaSummaryTurn = (turnText: string): boolean => {
-    const lower = turnText.toLowerCase();
-    // The system prompt instructs Dhara to ask exactly this phrase
-    const summaryPatterns = [
-      "vivran",       // "Kya ye vivran…"
-      "sahi hai",     // "…aapke anusaar sahi hai?"
-      "is this correct",
-      "summary",
-      "theek hai kya",
-      "theek lagta hai",
-      "sab sahi hai",
-    ];
-    return summaryPatterns.some((p) => lower.includes(p));
-  };
 
   // Patient selected -> move to record phase
   const handlePatientSelected = async (patient: SelectedPatient) => {
@@ -268,19 +212,13 @@ export function PatientIntakeScreen() {
         ? patient.relievingFactors.join(", ")
         : patient.relievingFactors
       : "no relieving factors noted";
-    const diet =
-      patient.diet ||
-      patient.diet_pattern ||
-      "diet not discussed";
+    const diet = patient.diet || patient.diet_pattern || "diet not discussed";
     const sleep =
-      patient.sleep ||
-      patient.sleep_quality ||
-      "sleep not discussed";
+      patient.sleep || patient.sleep_quality || "sleep not discussed";
     const bowel =
-      patient.bowel ||
-      patient.bowel_habits ||
-      "bowel habits not discussed";
-    const meds = patient.currentMedications || "no current medications reported";
+      patient.bowel || patient.bowel_habits || "bowel habits not discussed";
+    const meds =
+      patient.currentMedications || "no current medications reported";
     const priorTreatments = patient.prior_treatments
       ? Array.isArray(patient.prior_treatments)
         ? patient.prior_treatments.join(", ")
@@ -327,8 +265,8 @@ export function PatientIntakeScreen() {
     if (score === null) {
       return {
         badge: "success" as const,
-        accent: "border-violet-100 bg-gradient-to-br from-violet-50 to-white",
-        dot: "bg-violet-100 text-violet-700",
+        accent: "border-blue-100 bg-gradient-to-br from-blue-50 to-white",
+        dot: "bg-blue-100 text-blue-700",
       };
     }
 
@@ -364,7 +302,9 @@ export function PatientIntakeScreen() {
   const toList = (value: unknown) =>
     Array.isArray(value) ? value : value ? [String(value)] : [];
 
-  const normalizeTranscriptPatient = (patient: Partial<ClinicalExtraction["patient"]>) => ({
+  const normalizeTranscriptPatient = (
+    patient: Partial<ClinicalExtraction["patient"]>,
+  ) => ({
     ...patient,
     diet:
       patient?.diet ||
@@ -420,7 +360,6 @@ export function PatientIntakeScreen() {
     try {
       const result = await extractIntake(
         text,
-        settings.apiKey,
         settings.language,
         selectedPatient?.id,
       );
@@ -462,7 +401,10 @@ export function PatientIntakeScreen() {
       setPhase("review");
 
       // Check for emergency
-      if (normalizedData.status === "emergency" && normalizedData.emergency_alert?.triggered) {
+      if (
+        normalizedData.status === "emergency" &&
+        normalizedData.emergency_alert?.triggered
+      ) {
         setEmergencyAlert({
           reason: normalizedData.emergency_alert.reason,
           action: normalizedData.emergency_alert.action,
@@ -473,14 +415,20 @@ export function PatientIntakeScreen() {
       const intake: PatientIntake = {
         id: `intake-${Date.now()}`,
         patientId: selectedPatient?.id,
-        name: normalizedData.patient?.name || selectedPatient?.name || "Unknown",
+        name:
+          normalizedData.patient?.name || selectedPatient?.name || "Unknown",
         age: (normalizedData.patient?.age as number) || null,
-        gender: (normalizedData.patient?.gender as "male" | "female" | "other") || null,
+        gender:
+          (normalizedData.patient?.gender as "male" | "female" | "other") ||
+          null,
         chiefComplaint: normalizedData.patient?.chiefComplaint || "",
         symptoms: normalizedData.patient?.symptoms || [],
         duration: normalizedData.patient?.duration || "",
         severity:
-          (normalizedData.patient?.severity as "mild" | "moderate" | "severe") || null,
+          (normalizedData.patient?.severity as
+            | "mild"
+            | "moderate"
+            | "severe") || null,
         aggravatingFactors: normalizedData.patient?.aggravatingFactors || null,
         diet: normalizedData.patient?.diet || null,
         sleep: normalizedData.patient?.sleep || null,
@@ -515,7 +463,6 @@ export function PatientIntakeScreen() {
   useEffect(() => {
     performExtractRef.current = performExtract;
   }, [performExtract]);
-
 
   const handleProceedToDoctorStage = async () => {
     if (hasSubmitted || isExtracting) return;
@@ -604,7 +551,7 @@ export function PatientIntakeScreen() {
             (sessionStatus === "idle" || sessionStatus === "error") && (
               <Card className="text-center py-8">
                 <div className="flex flex-col items-center gap-4">
-                  <div className="h-16 w-16 rounded-2xl bg-violet-50 flex items-center justify-center text-violet-600">
+                  <div className="h-16 w-16 rounded-2xl bg-blue-50 flex items-center justify-center text-blue-600">
                     <Mic size={32} />
                   </div>
                   <div>
@@ -662,14 +609,14 @@ export function PatientIntakeScreen() {
               sessionStatus === "speaking") && (
               <>
                 {/* Voice Orb - Beacon-style continuous mode */}
-                <Card glow>
+                <Card active>
                   <div className="flex flex-col items-center py-6 gap-4">
                     {awaitingConfirmation && (
-                      <div className="w-full max-w-2xl rounded-2xl border border-violet-100 bg-violet-50 p-4 text-left">
-                        <p className="text-xs font-semibold uppercase tracking-wider text-violet-600 mb-2">
+                      <div className="w-full max-w-2xl rounded-2xl border border-blue-100 bg-blue-50 p-4 text-left">
+                        <p className="text-xs font-semibold uppercase tracking-wider text-blue-600 mb-2">
                           Dhara’s Assessment
                         </p>
-                        <p className="whitespace-pre-line text-sm leading-6 text-violet-900">
+                        <p className="whitespace-pre-line text-sm leading-6 text-blue-900">
                           {summaryPreview ||
                             "Dhara aapki baat ka saar taiyar kar rahi hain..."}
                         </p>
@@ -691,12 +638,12 @@ export function PatientIntakeScreen() {
                         ? "Dhara is speaking"
                         : awaitingConfirmation
                           ? "Please confirm the summary"
-                        : sessionStatus === "recording" ||
-                            (conversationStarted && sessionStatus === "idle")
-                          ? "Listening for your response"
-                          : sessionStatus === "connected"
-                            ? "Connected and ready"
-                            : "Connecting..."}
+                          : sessionStatus === "recording" ||
+                              (conversationStarted && sessionStatus === "idle")
+                            ? "Listening for your response"
+                            : sessionStatus === "connected"
+                              ? "Connected and ready"
+                              : "Connecting..."}
                     </div>
                     <AudioVisualizer status={visualizerStatus} />
                     <VoiceOrb
@@ -735,13 +682,14 @@ export function PatientIntakeScreen() {
                             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
                           </span>
                           <span className="text-xs font-medium">
-                            Dhara summarized — waiting for patient's confirmation
+                            Dhara summarized — waiting for patient's
+                            confirmation
                           </span>
                         </div>
                       )}
                       {isExtracting && (
-                        <div className="w-full flex items-center justify-center gap-2 mb-2 px-3 py-2 rounded-lg bg-violet-50 border border-violet-200 text-violet-700">
-                          <span className="h-3 w-3 rounded-full border-2 border-violet-400 border-t-transparent animate-spin" />
+                        <div className="w-full flex items-center justify-center gap-2 mb-2 px-3 py-2 rounded-lg bg-blue-50 border border-blue-200 text-blue-700">
+                          <span className="h-3 w-3 rounded-full border-2 border-blue-400 border-t-transparent animate-spin" />
                           <span className="text-xs font-medium">
                             Extracting clinical data…
                           </span>
@@ -750,11 +698,11 @@ export function PatientIntakeScreen() {
                       <Button
                         variant="secondary"
                         onClick={handleProceedToDoctorStage}
-                        disabled={isExtracting || hasSubmitted || !transcript.trim()}
+                        disabled={
+                          isExtracting || hasSubmitted || !transcript.trim()
+                        }
                       >
-                        {isExtracting
-                          ? "Extracting..."
-                          : "Extract Now"}
+                        {isExtracting ? "Extracting..." : "Extract Now"}
                       </Button>
                       <Button
                         variant="ghost"
@@ -806,7 +754,10 @@ export function PatientIntakeScreen() {
                       <div className="flex items-center gap-2">
                         {getSeverityDisplay(extraction.patient?.severity) && (
                           <Badge
-                            variant={getSeverityTone(extraction.patient?.severity).badge}
+                            variant={
+                              getSeverityTone(extraction.patient?.severity)
+                                .badge
+                            }
                           >
                             {getSeverityDisplay(extraction.patient?.severity)}
                           </Badge>
@@ -1010,32 +961,32 @@ export function PatientIntakeScreen() {
                     ) &&
                       extraction.ayurvedic_assessment.dosha_imbalance.length >
                         0 && (
-                      <div className="flex flex-wrap gap-1.5 mb-2">
-                        {extraction.ayurvedic_assessment.dosha_imbalance.map(
-                          (d, i) => (
-                            <Badge key={i} variant="dosha">
-                              {d}
-                            </Badge>
-                          ),
-                        )}
-                      </div>
-                    )}
+                        <div className="flex flex-wrap gap-1.5 mb-2">
+                          {extraction.ayurvedic_assessment.dosha_imbalance.map(
+                            (d, i) => (
+                              <Badge key={i} variant="dosha">
+                                {d}
+                              </Badge>
+                            ),
+                          )}
+                        </div>
+                      )}
                     {Array.isArray(
                       extraction.ayurvedic_assessment.suggested_herbs,
                     ) &&
                       extraction.ayurvedic_assessment.suggested_herbs.length >
                         0 && (
-                      <div className="mb-2">
-                        <p className="text-xs text-violet-500 font-medium">
-                          Suggested Herbs:
-                        </p>
-                        <p className="text-sm text-violet-700">
-                          {extraction.ayurvedic_assessment.suggested_herbs.join(
-                            ", ",
-                          )}
-                        </p>
-                      </div>
-                    )}
+                        <div className="mb-2">
+                          <p className="text-xs text-violet-500 font-medium">
+                            Suggested Herbs:
+                          </p>
+                          <p className="text-sm text-violet-700">
+                            {extraction.ayurvedic_assessment.suggested_herbs.join(
+                              ", ",
+                            )}
+                          </p>
+                        </div>
+                      )}
                   </div>
                 )}
 
@@ -1068,9 +1019,11 @@ export function PatientIntakeScreen() {
           <Card>
             <CardHeader>
               <CardTitle>Recent Intakes</CardTitle>
-              <Badge variant="info">{intakeList.length}</Badge>
+              <Badge variant="info">
+                 {intakeList.filter((i) => !selectedPatient || i.patientId === selectedPatient?.id).length}
+               </Badge>
             </CardHeader>
-            {intakeList.length === 0 ? (
+            {intakeList.filter((i) => !selectedPatient || i.patientId === selectedPatient?.id).length === 0 ? (
               <div className="py-6 text-center">
                 <ClipboardList
                   size={28}
@@ -1080,7 +1033,7 @@ export function PatientIntakeScreen() {
               </div>
             ) : (
               <div className="space-y-2 max-h-[500px] overflow-y-auto">
-                {intakeList.slice(0, 15).map((intake) => (
+                {intakeList.filter((i) => !selectedPatient || i.patientId === selectedPatient?.id).slice(0, 15).map((intake) => (
                   <div
                     key={intake.id}
                     className={`flex items-center gap-3 rounded-xl hover:bg-slate-50 p-2.5 border transition-colors ${
@@ -1097,7 +1050,7 @@ export function PatientIntakeScreen() {
                         {intake.name}
                       </p>
                       <p className="text-[10px] text-slate-400 truncate">
-                        {intake.chiefComplaint || "No complaint"} · {" "}
+                        {intake.chiefComplaint || "No complaint"} ·{" "}
                         {new Date(intake.timestamp).toLocaleTimeString([], {
                           hour: "2-digit",
                           minute: "2-digit",
@@ -1134,5 +1087,3 @@ export function PatientIntakeScreen() {
     </div>
   );
 }
-
-

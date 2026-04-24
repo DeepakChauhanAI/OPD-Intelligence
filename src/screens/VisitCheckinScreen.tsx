@@ -14,11 +14,7 @@
  */
 
 import { useState, useEffect } from "react";
-import {
-  ClipboardList,
-  AlertTriangle,
-  Check,
-} from "lucide-react";
+import { ClipboardList, AlertTriangle, Check } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
@@ -76,13 +72,17 @@ export function VisitCheckinScreen() {
     try {
       const result = await getVisits(patientId);
       if (result.success && result.visits) {
-        setVisits(result.visits);
-        if (result.visits.length > 0) {
-          const latest = result.visits[0];
+        // Only show visits with prescription_added status (ready for check-in)
+        const validVisits = result.visits.filter(
+          (v: any) => v.status === "prescription_added"
+        );
+        setVisits(validVisits);
+        if (validVisits.length > 0) {
+          const latest = validVisits[0];
           setSelectedVisit(latest);
           loadQuestions(latest.id);
         } else {
-          // No visits
+          // No valid visits
           setSelectedVisit(null);
           setPhase("select");
         }
@@ -137,6 +137,7 @@ export function VisitCheckinScreen() {
 
   const handleVisitSelected = (visit: any) => {
     setSelectedVisit(visit);
+    setPhase("questions");
     loadQuestions(visit.id);
   };
 
@@ -227,15 +228,7 @@ export function VisitCheckinScreen() {
             </CardHeader>
             <div className="p-4 space-y-3">
               <div className="max-h-64 overflow-y-auto space-y-2">
-                {backendPatients
-                  .filter(
-                    (p) =>
-                      !selectedPatient ||
-                      p.name
-                        .toLowerCase()
-                        .includes(selectedPatient?.name.toLowerCase() ?? ""),
-                  )
-                  .map((patient) => (
+                {backendPatients.map((patient) => (
                     <div
                       key={patient.id}
                       className={`p-3 rounded-lg border cursor-pointer transition-colors ${
@@ -250,7 +243,7 @@ export function VisitCheckinScreen() {
                       </p>
                       <p className="text-xs text-slate-500">
                         {patient.age}y, {patient.gender} ·{" "}
-                        {patient.chiefComplaint?.slice(0, 40)}...
+                        {patient.chiefComplaint?.slice(0, 40) || "No complaint"}
                       </p>
                     </div>
                   ))}
@@ -288,7 +281,7 @@ export function VisitCheckinScreen() {
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="text-sm font-medium text-slate-800">
-                            {visit.diagnosis_ayurveda || "Visit"}
+                            {(visit.diagnosis_ayurveda && String(visit.diagnosis_ayurveda) !== "0") ? visit.diagnosis_ayurveda : "Clinic Visit"}
                           </p>
                           <p className="text-xs text-slate-500">
                             {visit.visit_date} · {visit.followup_days} days

@@ -39,7 +39,7 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 # Install dependencies
 pip install -r requirements.txt
 
-# Create .env file and add your API key
+# Create .env file and add your backend API key
 echo "GEMINI_API_KEY=your_api_key_here" > .env
 ```
 

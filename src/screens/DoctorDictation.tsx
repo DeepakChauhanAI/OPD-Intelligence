@@ -17,13 +17,14 @@ import {
   Loader2,
   AlertTriangle,
   Check,
+  Clock,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
 import { PatientSelector } from "../components/PatientSelector";
 import { useAppStore } from "../store/useAppStore";
-import { confirmVisit, getPatientIntakeSummary } from "../lib/llmClient";
+import { confirmVisit, getPatientIntakes, processDictation } from "../lib/llmClient";
 import type { PatientIntakeSummary } from "../lib/llmClient";
 import { DictationEngine } from "../lib/dictationEngine";
 import type { ExtractedVisit, SelectedPatient, Language } from "../types";
@@ -51,13 +52,22 @@ export function DoctorDictationScreen() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [dictationEntryId, setDictationEntryId] = useState("");
   const [recordingTime, setRecordingTime] = useState(0);
-  const [selectedLanguage, setSelectedLanguage] = useState<string>(settings.language || "hinglish");
-  const [intakeSummary, setIntakeSummary] = useState<PatientIntakeSummary | null>(null);
+  const [selectedLanguage, setSelectedLanguage] = useState<string>(
+    settings.language || "hinglish",
+  );
+  const [intakeSummary, setIntakeSummary] =
+    useState<PatientIntakeSummary | null>(null);
+  const [historicalIntakes, setHistoricalIntakes] = useState<
+    PatientIntakeSummary[]
+  >([]);
   const [isLoadingIntake, setIsLoadingIntake] = useState(false);
+  const [showPatientBackground, setShowPatientBackground] = useState(false);
+  const [showRecentDictations, setShowRecentDictations] = useState(false);
 
   const engineRef = useRef<DictationEngine | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const liveTranscriptRef = useRef("");
+  const hasStructuredExtractionRef = useRef(false);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -69,56 +79,68 @@ export function DoctorDictationScreen() {
   // Auto-clear needsReview when required fields are filled
   useEffect(() => {
     if (!extracted) return;
-    
-    setNeedsReview((prev) => prev.filter((field) => {
-      if (field === 'diagnosis_ayurveda') return !extracted.diagnosis_ayurveda?.trim();
-      if (field === 'followup_days') return !extracted.followup_days;
-      
-      if (field === 'herbs') {
-        if (extracted.herbs.length === 0) return true;
-        const hasMissing = extracted.herbs.some((h) => !h.name?.trim() || !h.dose?.trim() || !h.timing?.trim());
-        return hasMissing;
-      }
-      
-      const match = field.match(/^herbs\[(\d+)\]\.(.+)$/);
-      if (match) {
-        const idx = parseInt(match[1]);
-        const key = match[2];
-        const herb = extracted.herbs[idx];
-        if (!herb) return false;
-        if (key === 'name') return !herb.name?.trim();
-        if (key === 'dose') return !herb.dose?.trim();
-        if (key === 'timing') return !herb.timing?.trim();
-      }
-      
-      return true; // Keep other unknown fields requiring review
-    }));
+
+    setNeedsReview((prev) =>
+      prev.filter((field) => {
+        if (field === "diagnosis_ayurveda")
+          return !extracted.diagnosis_ayurveda?.trim();
+        if (field === "followup_days") return !extracted.followup_days;
+
+        if (field === "herbs") {
+          const herbs = Array.isArray(extracted.herbs) ? extracted.herbs : [];
+          if (herbs.length === 0) return true;
+          const hasMissing = herbs.some(
+            (h) => !h.name?.trim() || !h.dose?.trim() || !h.timing?.trim(),
+          );
+          return hasMissing;
+        }
+
+        const match = field.match(/^herbs\[(\d+)\]\.(.+)$/);
+        if (match) {
+          const idx = parseInt(match[1]);
+          const key = match[2];
+          const herb = extracted.herbs[idx];
+          if (!herb) return false;
+          if (key === "name") return !herb.name?.trim();
+          if (key === "dose") return !herb.dose?.trim();
+          if (key === "timing") return !herb.timing?.trim();
+        }
+
+        return true; // Keep other unknown fields requiring review
+      }),
+    );
   }, [extracted]);
 
-  // ── Patient Selection ─────────────────────────────────────────────────────────
+  // ── Patient Selection ─────────────────────────────────────────
 
   const handlePatientSelected = async (patient: SelectedPatient) => {
     setSelectedPatient(patient);
     setIntakeSummary(null);
+    setHistoricalIntakes([]);
     setPhase("select");
 
-    // Fetch patient's most recent intake brief for doctor's context
+    // Fetch patient's full intake history for doctor's context
     if (patient.id && !patient.isNew) {
       setIsLoadingIntake(true);
       try {
-        const res = await getPatientIntakeSummary(patient.id);
-        if (res.success && res.intake) {
-          setIntakeSummary(res.intake);
+        const res = await getPatientIntakes(patient.id);
+        if (res.success && Array.isArray(res.intakes)) {
+          const normalizedIntakes = res.intakes.map(normalizeHistoricalIntake);
+          setHistoricalIntakes(normalizedIntakes);
+          // Default to the most recent one
+          if (normalizedIntakes.length > 0) {
+            setIntakeSummary(normalizedIntakes[0]);
+          }
         }
       } catch {
-        // non-fatal — intake summary is optional context
+        // non-fatal — intake history is optional context
       } finally {
         setIsLoadingIntake(false);
       }
     }
   };
 
-  // ── Transcribe & Extract ──────────────────────────────────────────────────────
+  // ── Transcribe & Extract ──────────────────────────────────────
 
   const processTranscript = useCallback(
     async (fullTranscript: string) => {
@@ -136,27 +158,21 @@ export function DoctorDictationScreen() {
       setPhase("processing");
 
       try {
-        const result = await fetch("/api/dictation/process", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            transcript: fullTranscript,
-            patient_id: selectedPatient?.id || null,
-          }),
-        });
+        // Use processDictation from llmClient
+        const result = await processDictation(fullTranscript, selectedPatient?.id);
 
-        const json = await result.json();
-
-        if (!result.ok || !json.success) {
-          throw new Error(json.error || "Extraction failed");
+        if (!result.success) {
+          throw new Error(result.error || "Extraction failed");
         }
 
+        const extractedData = result.extracted as ExtractedVisit;
         setTranscript(fullTranscript);
-        setExtracted(json.extracted || null);
-        setNeedsReview(json.needs_review || []);
-        setVisitId(json.visit_id || "");
+        setExtracted(extractedData);
+        setNeedsReview(Array.isArray(result.needs_review) ? result.needs_review : []);
+        setVisitId(result.visit_id || "");
+        hasStructuredExtractionRef.current = true;
 
-        const entryId = json.visit_id || `dict-${Date.now()}`;
+        const entryId = result.visit_id || `dict-${Date.now()}`;
         setDictationEntryId(entryId);
 
         addDictation({
@@ -164,7 +180,7 @@ export function DoctorDictationScreen() {
           patientId: selectedPatient?.id,
           timestamp: new Date().toISOString(),
           rawTranscript: fullTranscript,
-          structuredNote: json.extracted as any,
+          structuredNote: extractedData as any,
           status: "processing",
         });
 
@@ -173,7 +189,7 @@ export function DoctorDictationScreen() {
         addNotification({
           type: "info",
           title: "Transcription Complete",
-          message: `Review extracted data${json.needs_review?.length ? ` — ${json.needs_review.length} fields need review` : ""}`,
+          message: `Review extracted data${Array.isArray(result.needs_review) && result.needs_review.length ? ` — ${result.needs_review.length} fields need review` : ""}`,
         });
       } catch (err) {
         addNotification({
@@ -189,7 +205,7 @@ export function DoctorDictationScreen() {
     [selectedPatient, addDictation, addNotification],
   );
 
-  // ── Dictation Engine Event Handler ───────────────────────────────────────────
+  // ── Dictation Engine Event Handler ───────────────────────────────────
 
   const handleDictationEvent = useCallback(
     (event: any) => {
@@ -217,10 +233,47 @@ export function DoctorDictationScreen() {
           liveTranscriptRef.current = event.text;
           break;
 
-        case "saved":
-          // Use ref to avoid stale closure — the engine holds the original
-          // handler reference, so closure-captured liveTranscript is always "".
-          const savedTranscript = liveTranscriptRef.current.trim();
+        case "processed": {
+          // Received structured extraction from server via DictationEngine
+          const { visitId: vid, extracted: ext, needsReview } = event;
+          const extractedData = ext as ExtractedVisit;
+          hasStructuredExtractionRef.current = true;
+          setTranscript(liveTranscriptRef.current);
+          setExtracted(extractedData);
+          setNeedsReview(needsReview || []);
+          setVisitId(vid || "");
+
+          const entryId = vid || `dict-${Date.now()}`;
+          setDictationEntryId(entryId);
+
+          addDictation({
+            id: entryId,
+            patientId: selectedPatient?.id,
+            timestamp: new Date().toISOString(),
+            rawTranscript: liveTranscriptRef.current,
+            structuredNote: extractedData as any,
+            status: "processing",
+          });
+
+          setPhase("review");
+
+          addNotification({
+            type: "info",
+            title: "Transcription Complete",
+            message: `Review extracted data${needsReview?.length ? ` — ${needsReview.length} fields need review` : ""}`,
+          });
+          break;
+        }
+
+        case "saved": {
+          // Received full transcript after recording stopped
+          // Skip fallback processing when the structured extraction path already ran.
+          if (hasStructuredExtractionRef.current) {
+             console.log("[Dictation] Skipping processTranscript because we already have extracted data");
+             break;
+          }
+
+          const savedTranscript = (event.transcript || liveTranscriptRef.current).trim();
           if (savedTranscript) {
             void processTranscript(savedTranscript);
           } else {
@@ -232,6 +285,7 @@ export function DoctorDictationScreen() {
             setPhase("select");
           }
           break;
+        }
 
         case "error":
           addNotification({
@@ -243,16 +297,17 @@ export function DoctorDictationScreen() {
           break;
       }
     },
-    [addNotification, processTranscript],
+    [addNotification, processTranscript, selectedPatient],
   );
 
-  // ── Recording ─────────────────────────────────────────────────────────────────
+  // ── Recording ─────────────────────────────────────────────────
 
   const startRecording = async () => {
     try {
       setLiveTranscript("");
       liveTranscriptRef.current = "";
       setTranscript("");
+      hasStructuredExtractionRef.current = false;
       setPhase("recording");
 
       engineRef.current = new DictationEngine({
@@ -291,7 +346,7 @@ export function DoctorDictationScreen() {
     }
   };
 
-  // ── Confirm ───────────────────────────────────────────────────────────────────
+  // ── Confirm ─────────────────────────────────────────────────
 
   const handleConfirm = async () => {
     if (!visitId || !extracted) return;
@@ -330,7 +385,100 @@ export function DoctorDictationScreen() {
     }
   };
 
-  // ── Restart ───────────────────────────────────────────────────────────────────
+  // ── Restart ─────────────────────────────────────────────────
+
+  // @ts-ignore
+  const normalizeExtractedVisit = (
+    visit: Partial<ExtractedVisit> | null | undefined,
+  ): ExtractedVisit => ({
+    diagnosis_ayurveda: visit?.diagnosis_ayurveda,
+    diagnosis_icd: visit?.diagnosis_icd,
+    prakriti_observed: visit?.prakriti_observed,
+    fasting_glucose: visit?.fasting_glucose ?? null,
+    herbs: Array.isArray(visit?.herbs) ? visit.herbs : [],
+    diet_restrictions: Array.isArray(visit?.diet_restrictions)
+      ? visit.diet_restrictions
+      : [],
+    lifestyle_advice: Array.isArray(visit?.lifestyle_advice)
+      ? visit.lifestyle_advice
+      : [],
+    followup_days: visit?.followup_days,
+    doctor_notes: visit?.doctor_notes,
+    needs_review: Array.isArray(visit?.needs_review)
+      ? visit.needs_review
+      : [],
+  });
+
+  const normalizeHistoricalIntake = (intake: PatientIntakeSummary) => {
+    // Clean LLM placeholder text (lazy extraction)
+    const cleanField = (text: any): string => {
+      if (typeof text !== 'string') return '';
+      let cleaned = text
+        .replace(/Patient:\s*[^\n]*\n?/gi, '')
+        .replace(/I've [^;]*;/gi, '')
+        .replace(/I'm [^;]*;/gi, '')
+        .replace(/Hello[^;]*;/gi, '')
+        .replace(/Now[^;]*;/gi, '')
+        .replace(/My [^;]*;/gi, '')
+        .replace(/The [^;]*;/gi, '')
+        .replace(/That was[^;]*;/gi, '')
+        .trim();
+
+      // Filter out LLM placeholder text
+      const lower = cleaned.toLowerCase();
+      if (
+        lower.includes('not discussed') ||
+        lower.includes('no prior') ||
+        lower.includes('no relieving') ||
+        lower.includes('not mentioned') ||
+        lower.includes('no current') ||
+        lower.includes('not captured') ||
+        cleaned.length === 0
+      ) {
+        return '';
+      }
+      return cleaned.substring(0, 100);
+    };
+
+    const cleanArray = (arr: any): string[] => {
+      if (!Array.isArray(arr)) return [];
+      return arr
+        .map((item: any) => typeof item === 'string' ? cleanField(item) : '')
+        .filter((s: string) => s.length > 0)
+        .slice(0, 5);
+    };
+
+    return {
+      ...intake,
+      name:
+        (intake as any).name ||
+        intake.patient_name ||
+        (typeof intake.chief_complaint === 'string'
+          ? intake.chief_complaint.substring(0, 50)
+          : '') ||
+        "Unknown",
+      chiefComplaint: typeof intake.chief_complaint === 'string'
+        ? intake.chief_complaint.substring(0, 80)
+        : '',
+      symptoms: Array.isArray(intake.symptoms)
+        ? intake.symptoms
+            .map((s: any) => (typeof s === 'string' ? s.substring(0, 30) : s))
+            .slice(0, 5)
+        : [],
+      diet: cleanField(intake.diet),
+      sleep: cleanField(intake.sleep),
+      bowel: cleanField(intake.bowel),
+      current_medications: Array.isArray(intake.current_medications)
+        ? intake.current_medications
+            .map((m: any) => (typeof m === 'string' ? m.substring(0, 30) : m))
+            .slice(0, 3)
+        : [],
+      redFlags: cleanArray(intake.red_flags),
+      dosha: typeof intake.dosha === 'string' ? intake.dosha.substring(0, 20) : '',
+      severity: intake.severity,
+      duration: typeof intake.duration === 'string' ? intake.duration.substring(0, 20) : '',
+    };
+  };
 
   const handleRestart = () => {
     setPhase("select");
@@ -346,7 +494,7 @@ export function DoctorDictationScreen() {
     setIntakeSummary(null);
   };
 
-  // ── Render ────────────────────────────────────────────────────────────────────
+  // ── Render ─────────────────────────────────────────────────
 
   // Phase 1/2: Selection or Recording
   if (phase === "select" || phase === "recording" || phase === "processing") {
@@ -365,6 +513,14 @@ export function DoctorDictationScreen() {
               <p className="text-sm text-slate-500">
                 Patient: {selectedPatient?.name || "Unknown"}
               </p>
+              {selectedPatient && (
+                <button
+                  onClick={() => setSelectedPatient(null)}
+                  className="text-xs text-violet-600 hover:text-violet-800 font-medium underline ml-1"
+                >
+                  Change Patient
+                </button>
+              )}
             </div>
           </div>
           <Button size="sm" variant="ghost" onClick={handleRestart}>
@@ -375,7 +531,7 @@ export function DoctorDictationScreen() {
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
           {/* Recording Panel */}
           <div className="lg:col-span-3 space-y-4">
-            <Card glow>
+            <Card active>
               <div className="flex flex-col items-center py-8">
                 {phase === "recording" ? (
                   <>
@@ -389,21 +545,6 @@ export function DoctorDictationScreen() {
                       Recording... {Math.floor(recordingTime / 60)}:
                       {(recordingTime % 60).toString().padStart(2, "0")}
                     </p>
-
-                    {/* Live Transcript Display */}
-                    {liveTranscript && (
-                      <div className="w-full max-w-2xl mt-4 px-4">
-                        <div className="rounded-lg bg-slate-50 border border-slate-200 p-3">
-                          <p className="text-xs text-slate-500 mb-1">
-                            Live Transcript
-                          </p>
-                          <p className="text-sm text-slate-700 leading-relaxed min-h-[60px] max-h-32 overflow-y-auto">
-                            {liveTranscript}
-                            <span className="inline-block w-2 h-4 bg-red-400 ml-1 animate-pulse" />
-                          </p>
-                        </div>
-                      </div>
-                    )}
 
                     <Button
                       variant="danger"
@@ -449,7 +590,11 @@ export function DoctorDictationScreen() {
                               : "text-slate-500 hover:text-slate-700"
                           }`}
                         >
-                          {lang === "en" ? "English" : lang === "hi" ? "Hindi" : "Hinglish"}
+                          {lang === "en"
+                            ? "English"
+                            : lang === "hi"
+                              ? "Hindi"
+                              : "Hinglish"}
                         </button>
                       ))}
                     </div>
@@ -504,35 +649,77 @@ export function DoctorDictationScreen() {
                 </div>
               </Card>
             )}
-
-            {/* Close col-span-3 before starting col-span-2 history */}
           </div>
 
           {/* Right panel: intake brief + history */}
           <div className="lg:col-span-2 space-y-4">
+            {/* ── Patient Background (Collapsible) ─────────────────── */}
+            <Card>
+              <CardHeader>
+                <button
+                  className="flex items-center gap-2 w-full text-left"
+                  onClick={() => setShowPatientBackground(!showPatientBackground)}
+                >
+                  <Stethoscope size={14} className="text-violet-500" />
+                  <span className="text-sm font-semibold">Patient Background</span>
+                  {isLoadingIntake && (
+                    <Loader2 size={12} className="animate-spin text-slate-400 ml-1" />
+                  )}
+                  <span className="ml-auto text-xs text-slate-400">
+                    {showPatientBackground ? "▲" : "▼"}
+                  </span>
+                </button>
+              </CardHeader>
+              {showPatientBackground && selectedPatient && (
+                <div className="px-4 pb-4 space-y-4 text-xs">
+                  {/* Historical Intake Selector */}
+                  {historicalIntakes.length > 1 && (
+                    <div className="flex flex-col gap-1.5 p-2 bg-slate-50 rounded-lg border border-slate-100">
+                      <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                        <Clock size={10} />
+                        Historical Records
+                      </div>
+                      <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+                        {historicalIntakes.map((intake, idx) => (
+                          <button
+                            key={intake.id || idx}
+                            onClick={() => setIntakeSummary(intake)}
+                            className={`px-2 py-1 rounded border transition-all shrink-0 whitespace-nowrap ${
+                              intakeSummary?.id === intake.id
+                                ? "bg-violet-600 border-violet-600 text-white shadow-sm"
+                                : "bg-white border-slate-200 text-slate-600 hover:border-violet-300"
+                            }`}
+                          >
+                            {new Date(intake.created_at).toLocaleDateString(
+                              [],
+                              {
+                                month: "short",
+                                day: "numeric",
+                                year: intake.created_at.startsWith(
+                                  new Date().getFullYear().toString(),
+                                )
+                                  ? undefined
+                                  : "2-digit",
+                              },
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
-            {/* ── Patient Intake Brief ─────────────────────────────────── */}
-            {selectedPatient && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <Stethoscope size={14} className="text-violet-500" />
-                    Patient Background
-                    {isLoadingIntake && (
-                      <Loader2 size={12} className="animate-spin text-slate-400 ml-1" />
-                    )}
-                  </CardTitle>
-                </CardHeader>
-                <div className="px-4 pb-4 space-y-2 text-xs">
                   {isLoadingIntake ? (
                     <p className="text-slate-400 italic">Loading intake…</p>
                   ) : intakeSummary ? (
                     <>
                       {/* Red flags banner */}
                       {intakeSummary.red_flags?.length > 0 && (
-                        <div className="flex items-start gap-2 rounded-lg bg-red-50 border border-red-200 p-2">
-                          <AlertTriangle size={13} className="text-red-500 shrink-0 mt-0.5" />
-                          <p className="text-red-700 font-semibold">
+                        <div className="flex items-start gap-2 rounded bg-red-50 border border-red-200 p-2">
+                          <AlertTriangle
+                            size={13}
+                            className="text-red-500 shrink-0 mt-0.5"
+                          />
+                          <p className="text-red-700 text-[10px] font-semibold">
                             ⚠ {intakeSummary.red_flags.join(" · ")}
                           </p>
                         </div>
@@ -556,132 +743,183 @@ export function DoctorDictationScreen() {
                         </div>
                       </div>
 
-                      {/* Symptoms */}
+                      {/* Symptoms - show as compact tags */}
                       {intakeSummary.symptoms?.length > 0 && (
                         <div>
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Symptoms</p>
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">
+                            Symptoms
+                          </p>
                           <div className="flex flex-wrap gap-1">
-                            {intakeSummary.symptoms.map((s, i) => (
-                              <span key={i} className="px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px]">
+                            {intakeSummary.symptoms.slice(0, 5).map((s: string, i: number) => (
+                              <span
+                                key={i}
+                                className="px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] max-w-[120px] truncate"
+                                title={s}
+                              >
                                 {s}
                               </span>
                             ))}
+                            {intakeSummary.symptoms.length > 5 && (
+                              <span className="px-1.5 py-0.5 text-slate-400 text-[10px]">
+                                +{intakeSummary.symptoms.length - 5} more
+                              </span>
+                            )}
                           </div>
                         </div>
                       )}
 
-                      {/* Lifestyle snapshot */}
+                      {/* Lifestyle snapshot - compact view */}
                       <div className="grid grid-cols-3 gap-1.5">
                         {intakeSummary.diet && (
                           <div className="rounded bg-amber-50 p-1.5">
-                            <p className="text-[9px] font-bold text-amber-600 uppercase">Diet</p>
-                            <p className="text-[10px] text-slate-600 leading-tight line-clamp-2">{intakeSummary.diet}</p>
+                            <p className="text-[9px] font-bold text-amber-600 uppercase">
+                              Diet
+                            </p>
+                            <p className="text-[10px] text-slate-600 leading-tight line-clamp-2 max-h-[2.5rem] overflow-hidden">
+                              {intakeSummary.diet.slice(0, 80)}
+                            </p>
                           </div>
                         )}
                         {intakeSummary.sleep && (
                           <div className="rounded bg-sky-50 p-1.5">
-                            <p className="text-[9px] font-bold text-sky-600 uppercase">Sleep</p>
-                            <p className="text-[10px] text-slate-600 leading-tight line-clamp-2">{intakeSummary.sleep}</p>
+                            <p className="text-[9px] font-bold text-sky-600 uppercase">
+                              Sleep
+                            </p>
+                            <p className="text-[10px] text-slate-600 leading-tight line-clamp-2 max-h-[2.5rem] overflow-hidden">
+                              {intakeSummary.sleep.slice(0, 80)}
+                            </p>
                           </div>
                         )}
                         {intakeSummary.bowel && (
                           <div className="rounded bg-emerald-50 p-1.5">
-                            <p className="text-[9px] font-bold text-emerald-600 uppercase">Bowel</p>
-                            <p className="text-[10px] text-slate-600 leading-tight line-clamp-2">{intakeSummary.bowel}</p>
+                            <p className="text-[9px] font-bold text-emerald-600 uppercase">
+                              Bowel
+                            </p>
+                            <p className="text-[10px] text-slate-600 leading-tight line-clamp-2 max-h-[2.5rem] overflow-hidden">
+                              {intakeSummary.bowel.slice(0, 80)}
+                            </p>
                           </div>
                         )}
                       </div>
 
-                      {/* Current meds */}
+                      {/* Current meds - compact list */}
                       {intakeSummary.current_medications?.length > 0 && (
                         <div>
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">Current Medications</p>
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-1">
+                            Current Medications
+                          </p>
                           <ul className="space-y-0.5">
-                            {intakeSummary.current_medications.map((m, i) => (
-                              <li key={i} className="text-[10px] text-slate-600 flex gap-1"><span className="text-slate-300">•</span>{m}</li>
+                            {intakeSummary.current_medications.slice(0, 3).map((m: string, i: number) => (
+                              <li
+                                key={i}
+                                className="text-[10px] text-slate-600 flex gap-1"
+                              >
+                                <span className="text-slate-300">•</span>
+                                <span className="truncate max-w-[150px]" title={m}>{m}</span>
+                              </li>
                             ))}
+                            {intakeSummary.current_medications.length > 3 && (
+                              <li className="text-[10px] text-slate-400">
+                                +{intakeSummary.current_medications.length - 3} more
+                              </li>
+                            )}
                           </ul>
                         </div>
                       )}
 
                       <p className="text-[9px] text-slate-300 pt-1">
-                        Intake recorded {new Date(intakeSummary.created_at).toLocaleDateString()}
+                        Intake recorded{" "}
+                        {new Date(
+                          intakeSummary.created_at,
+                        ).toLocaleDateString()}
                       </p>
                     </>
                   ) : (
-                    <p className="text-slate-400 italic">No intake on file for this patient.</p>
+                    <p className="text-slate-400 italic">
+                      No intake on file for this patient.
+                    </p>
                   )}
                 </div>
-              </Card>
-            )}
+              )}
+            </Card>
 
-            {/* ── Recent Dictations ────────────────────────────────────── */}
+            {/* ── Recent Dictations (Collapsible) ─────────────────────── */}
             <Card>
               <CardHeader>
-                <CardTitle>Recent Dictations</CardTitle>
-                <Badge variant="info">{dictationList.length}</Badge>
+                <button
+                  className="flex items-center gap-2 w-full text-left"
+                  onClick={() => setShowRecentDictations(!showRecentDictations)}
+                >
+                  <FileText size={14} className="text-violet-500" />
+                  <span className="text-sm font-semibold">Recent Dictations</span>
+                  <Badge variant="info">{dictationList.length}</Badge>
+                  <span className="ml-auto text-xs text-slate-400">
+                    {showRecentDictations ? "▲" : "▼"}
+                  </span>
+                </button>
               </CardHeader>
-              {dictationList.length === 0 ? (
-                <div className="py-6 text-center">
-                  <FileText size={28} className="text-slate-200 mx-auto mb-2" />
-                  <p className="text-xs text-slate-400">No dictations yet</p>
-                </div>
-              ) : (
-                <div className="space-y-2 max-h-[500px] overflow-y-auto p-2">
-                  {dictationList.slice(0, 15).map((entry) => {
-                    const note = entry.structuredNote as any;
-                    return (
-                      <div
-                        key={entry.id}
-                        className="flex items-center gap-3 rounded-xl hover:bg-slate-50 p-2.5 border border-slate-100 transition-colors"
-                      >
+              {showRecentDictations && (
+                dictationList.length === 0 ? (
+                  <div className="py-6 text-center">
+                    <FileText size={28} className="text-slate-200 mx-auto mb-2" />
+                    <p className="text-xs text-slate-400">No dictations yet</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-[500px] overflow-y-auto p-2">
+                    {dictationList.slice(0, 15).map((entry) => {
+                      const note = entry.structuredNote as any;
+                      return (
                         <div
-                          className={`h-9 w-9 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 ${
-                            entry.status === "done"
-                              ? "bg-emerald-50 text-emerald-600"
-                              : entry.status === "error"
-                                ? "bg-red-50 text-red-600"
-                                : entry.status === "processing"
-                                  ? "bg-amber-50 text-amber-600"
-                                  : "bg-slate-50 text-slate-600"
-                          }`}
+                          key={entry.id}
+                          className="flex items-center gap-3 rounded-xl hover:bg-slate-50 p-2.5 border border-slate-100 transition-colors"
                         >
-                          <FileText size={16} />
+                          <div
+                            className={`h-9 w-9 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 ${
+                              entry.status === "done"
+                                ? "bg-emerald-50 text-emerald-600"
+                                : entry.status === "error"
+                                  ? "bg-red-50 text-red-600"
+                                  : entry.status === "processing"
+                                    ? "bg-amber-50 text-amber-600"
+                                    : "bg-slate-50 text-slate-600"
+                            }`}
+                          >
+                            <FileText size={16} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold text-slate-700 truncate">
+                              {(note?.diagnosis_ayurveda && String(note.diagnosis_ayurveda) !== "0") ? note.diagnosis_ayurveda : 
+                               (note?.diagnosis && String(note.diagnosis) !== "0") ? note.diagnosis : "Draft Visit"}
+                            </p>
+                            <p className="text-[10px] text-slate-400">
+                              {new Date(entry.timestamp).toLocaleTimeString([], {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                              {note?.herbs?.length
+                                ? ` · ${note.herbs.length} meds`
+                                : ""}
+                            </p>
+                          </div>
+                          <Badge
+                            variant={
+                              entry.status === "done"
+                                ? "success"
+                                : entry.status === "error"
+                                  ? "error"
+                                  : entry.status === "processing"
+                                    ? "warning"
+                                    : "info"
+                            }
+                            size="sm"
+                          >
+                            {entry.status}
+                          </Badge>
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-semibold text-slate-700 truncate">
-                            {note?.diagnosis_ayurveda ||
-                              note?.diagnosis ||
-                              "Draft"}
-                          </p>
-                          <p className="text-[10px] text-slate-400">
-                            {new Date(entry.timestamp).toLocaleTimeString([], {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                            {note?.herbs?.length
-                              ? ` · ${note.herbs.length} meds`
-                              : ""}
-                          </p>
-                        </div>
-                        <Badge
-                          variant={
-                            entry.status === "done"
-                              ? "success"
-                              : entry.status === "error"
-                                ? "error"
-                                : entry.status === "processing"
-                                  ? "warning"
-                                  : "info"
-                          }
-                          size="sm"
-                        >
-                          {entry.status}
-                        </Badge>
-                      </div>
-                    );
-                  })}
-                </div>
+                      );
+                    })}
+                  </div>
+                )
               )}
             </Card>
           </div>
@@ -740,7 +978,7 @@ export function DoctorDictationScreen() {
                       })
                     }
                     className={`w-full mt-1 px-3 py-2 border rounded-lg text-sm ${needsReview.includes("diagnosis_ayurveda") ? "border-amber-300 bg-amber-50" : ""}`}
-                    placeholder="e.g., Vataja Prameha"
+                    placeholder="e.g., Vatarakta"
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
@@ -1047,7 +1285,6 @@ export function DoctorDictationScreen() {
 
           {/* Right: Intake Baseline + Summary + Confirm */}
           <div className="lg:col-span-2 space-y-4">
-
             {/* Intake baseline (compact) */}
             {intakeSummary && (
               <Card>
@@ -1060,41 +1297,115 @@ export function DoctorDictationScreen() {
                 <div className="px-4 pb-4 space-y-2 text-xs">
                   {intakeSummary.red_flags?.length > 0 && (
                     <div className="flex items-start gap-2 rounded bg-red-50 border border-red-200 p-1.5">
-                      <AlertTriangle size={12} className="text-red-500 shrink-0 mt-0.5" />
+                      <AlertTriangle
+                        size={12}
+                        className="text-red-500 shrink-0 mt-0.5"
+                      />
                       <p className="text-red-700 text-[10px] font-semibold">
-                        {intakeSummary.red_flags.join(" · ")}
+                        ⚠ {intakeSummary.red_flags.join(" · ")}
                       </p>
                     </div>
                   )}
-                  <div className="rounded bg-violet-50 border border-violet-100 p-2">
-                    <p className="font-semibold text-violet-800 text-[11px]">
-                      {intakeSummary.chief_complaint || "(no complaint recorded)"}
+
+                  <div className="rounded-lg bg-violet-50 border border-violet-100 p-2.5">
+                    <p className="font-semibold text-violet-800 leading-snug">
+                      {intakeSummary.chief_complaint || "not captured"}
                     </p>
-                    <div className="flex flex-wrap gap-2 mt-0.5 text-[10px] text-violet-600">
-                      {intakeSummary.duration && <span>⏱ {intakeSummary.duration}</span>}
-                      {intakeSummary.severity && <span>⚡ Sev. {intakeSummary.severity}/10</span>}
-                      {intakeSummary.dosha && <span>🌿 {intakeSummary.dosha}</span>}
+                    <div className="flex gap-3 mt-1 text-[10px] text-violet-600">
+                      {intakeSummary.duration && (
+                        <span>⏱ {intakeSummary.duration}</span>
+                      )}
+                      {intakeSummary.severity && (
+                        <span>⚡ Severity {intakeSummary.severity}/10</span>
+                      )}
+                      {intakeSummary.dosha && (
+                        <span>🌿 {intakeSummary.dosha}</span>
+                      )}
                     </div>
                   </div>
-                  {intakeSummary.symptoms?.length > 0 && (
-                    <div className="flex flex-wrap gap-1">
-                      {intakeSummary.symptoms.slice(0, 5).map((s, i) => (
-                        <span key={i} className="px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px]">{s}</span>
-                      ))}
-                    </div>
-                  )}
+
+                  {intakeSummary.symptoms?.slice(0, 5).map((s: string, i: number) => (
+                    <span
+                      key={i}
+                      className="inline-block px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] mr-1 mb-1"
+                    >
+                      {s}
+                    </span>
+                  ))}
                 </div>
               </Card>
             )}
 
+            {/* Visit Summary Card */}
             <Card>
               <CardHeader>
-                <CardTitle>Visit Summary</CardTitle>
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <FileText size={14} className="text-violet-500" />
+                  Visit Summary
+                </CardTitle>
               </CardHeader>
+              <div className="px-4 pb-4 space-y-3 text-xs">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                    Diagnosis
+                  </p>
+                  <p className="font-semibold text-slate-700">
+                    {extracted.diagnosis_ayurveda || "—"}
+                    {extracted.diagnosis_icd && (
+                      <span className="text-slate-400 font-normal"> ({extracted.diagnosis_icd})</span>
+                    )}
+                  </p>
+                </div>
+
+                {extracted.herbs.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                      Prescribed Herbs
+                    </p>
+                    {extracted.herbs.map((h: any, i: number) => (
+                      <div key={i} className="mb-1 p-1.5 bg-emerald-50 rounded border border-emerald-100">
+                        <p className="font-medium text-emerald-800">{h.name}</p>
+                        <p className="text-[10px] text-emerald-600">
+                          {h.dose} · {h.timing}
+                          {h.vehicle && ` · with ${h.vehicle}`}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {extracted.followup_days && (
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                      Follow-up
+                    </p>
+                    <p className="text-slate-600">
+                      {extracted.followup_days} days
+                    </p>
+                  </div>
+                )}
+
+                {needsReview.length > 0 && (
+                  <div className="p-2 bg-amber-50 border border-amber-200 rounded">
+                    <p className="text-[10px] font-bold text-amber-700 mb-1">
+                      Needs Review
+                    </p>
+                    <ul className="text-[10px] text-amber-600 space-y-0.5">
+                      {needsReview.map((f: string, i: number) => (
+                        <li key={i}>• {f}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </Card>
+
+            {/* Confirm Button */}
+            <Card>
               <div className="p-4 space-y-3">
                 <div>
                   <label className="text-xs font-semibold text-slate-500">
-                    Follow-up (days)
+                    Follow-up Days
                   </label>
                   <input
                     type="number"
@@ -1102,59 +1413,29 @@ export function DoctorDictationScreen() {
                     onChange={(e) =>
                       setExtracted({
                         ...extracted,
-                        followup_days: parseInt(e.target.value) || 30,
+                        followup_days: e.target.value
+                          ? parseInt(e.target.value)
+                          : undefined,
                       })
                     }
-                    className="w-full px-3 py-2 border rounded text-sm"
-                    min={1}
-                    max={365}
+                    className="w-full mt-1 px-3 py-2 border rounded-lg text-sm"
+                    placeholder="30"
                   />
-                  <p className="text-[10px] text-slate-400 mt-1">
-                    Check-in templates will cover this period
-                  </p>
                 </div>
-
-                {needsReview.length > 0 && (
-                  <div className="rounded-lg bg-amber-50 p-3 border border-amber-200">
-                    <p className="text-xs font-semibold text-amber-700 mb-2 flex items-center gap-1">
-                      <AlertTriangle size={12} /> Needs Review
-                    </p>
-                    <ul className="space-y-1">
-                      {needsReview.map((field) => (
-                        <li
-                          key={field}
-                          className="text-xs text-amber-800 flex items-center gap-2"
-                        >
-                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                          {field}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
 
                 <Button
                   onClick={handleConfirm}
-                  disabled={isProcessing || needsReview.length > 0}
+                  disabled={needsReview.length > 0 || isProcessing}
+                  loading={isProcessing}
                   className="w-full"
                   size="lg"
-                  variant="success"
                 >
-                  {isProcessing ? (
-                    <>
-                      <Loader2 size={16} className="animate-spin mr-2" />
-                      Finalizing...
-                    </>
-                  ) : (
-                    <>
-                      <Check size={16} className="mr-2" />
-                      Confirm & Generate Check-in Templates
-                    </>
-                  )}
+                  Confirm & Generate Check-in Templates
                 </Button>
+
                 {needsReview.length > 0 && (
-                  <p className="text-xs text-slate-500 text-center">
-                    Please review highlighted fields before confirming
+                  <p className="text-[10px] text-amber-600 text-center">
+                    Please complete all required fields before confirming.
                   </p>
                 )}
               </div>
@@ -1163,10 +1444,10 @@ export function DoctorDictationScreen() {
             {/* Transcript Preview */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-sm">Transcript</CardTitle>
+                <CardTitle className="text-sm">Transcript Preview</CardTitle>
               </CardHeader>
-              <div className="p-3">
-                <p className="text-xs text-slate-600 whitespace-pre-wrap max-h-40 overflow-y-auto font-mono">
+              <div className="p-4">
+                <p className="text-xs text-slate-600 whitespace-pre-wrap max-h-32 overflow-y-auto font-mono leading-relaxed">
                   {transcript}
                 </p>
               </div>
@@ -1178,24 +1459,69 @@ export function DoctorDictationScreen() {
   }
 
   // Phase 4: Confirmed
-  if (phase === "confirmed") {
+  if (phase === "confirmed" && extracted) {
     return (
       <div className="space-y-6">
-        <div className="flex flex-col items-center justify-center py-16">
-          <div className="h-20 w-20 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 mb-4">
-            <Check size={40} />
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-800">Visit Finalized</h1>
+            <p className="text-sm text-emerald-600 mt-0.5">
+              Check-in templates generated for {extracted.followup_days || 30} days
+            </p>
           </div>
-          <h1 className="text-2xl font-bold text-slate-800 mb-2">
-            Visit Finalized
-          </h1>
-          <p className="text-sm text-slate-600 mb-6">
-            Daily check-in question templates generated for{" "}
-            {extracted?.followup_days || 30} days
-          </p>
-          <Button onClick={handleRestart} size="lg">
+          <Button size="sm" variant="ghost" onClick={handleRestart}>
             New Dictation
           </Button>
         </div>
+
+        <Card>
+          <div className="p-8 text-center space-y-4">
+            <div className="mx-auto w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center">
+              <Check size={32} className="text-emerald-600" />
+            </div>
+            <h2 className="text-xl font-bold text-slate-800">
+              Visit Successfully Finalized!
+            </h2>
+            <p className="text-sm text-slate-500 max-w-md mx-auto">
+              The visit record has been saved and check-in templates have been
+              generated for the next {extracted.followup_days || 30} days.
+              Patients can now use the Visit Check-in screen to track their recovery.
+            </p>
+
+            {/* Show generated check-in questions preview */}
+            {extracted.herbs?.length > 0 && (
+              <div className="max-w-lg mx-auto text-left">
+                <p className="text-sm font-semibold text-slate-700 mb-2">
+                  Auto-Generated Check-in Questions:
+                </p>
+                <div className="space-y-2">
+                  {extracted.herbs.slice(0, 3).map((herb: any, idx: number) => (
+                    <div key={idx} className="p-2 bg-slate-50 rounded-lg text-sm text-slate-600">
+                      <p className="font-medium text-slate-700">{herb.name}</p>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Q: Kya aapne aaj {herb.name} li{
+                        herb.timing ? ` — ${herb.timing}?` : "?"}
+                      </p>
+                    </div>
+                  ))}
+                  {extracted.diet_restrictions?.slice(0, 3 - (extracted.herbs?.length || 0)).map((restriction: string, idx: number) => (
+                    <div key={`diet-${idx}`} className="p-2 bg-slate-50 rounded-lg text-sm text-slate-600">
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Q: Kya aaj aapne {restriction} se parhej kiya?
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="pt-4">
+              <Button onClick={handleRestart}>
+                Start New Dictation
+              </Button>
+            </div>
+          </div>
+        </Card>
       </div>
     );
   }
