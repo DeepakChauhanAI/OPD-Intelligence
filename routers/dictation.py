@@ -554,6 +554,55 @@ async def dictation_confirm(body: dict = Body(...)):
 
 # ─── Check-in Question Template Generation ────────────────────────────────────
 
+def clean_diet_restriction(restriction: str) -> str:
+    """
+    Clean a diet restriction string to extract the actual food/behavior to avoid.
+    Removes action verbs and instructions, keeping only the core restriction.
+    """
+    if not restriction:
+        return restriction
+
+    original = restriction.strip()
+    cleaned = original.lower()
+
+    # Remove common action phrases - try multiple variations
+    action_phrases = [
+        # Hindi phrases
+        "बंद कर दें", "बंद करें", "परहेज करें", "परहेज किजिए", "खाना बंद करें",
+        "पूरी तरह बंद कर दें", "कम करें", "कम खाएं", "न खाएं", "न लें",
+        "से परहेज", "को बंद", "को कम", "पूरी तरह", "बंद कर", "कर दें",
+        "poori tarah band kar dein", "poori tarah", "band kar dein",
+        # English phrases
+        "avoid", "stop", "do not eat", "completely stop", "reduce",
+        "avoid eating", "stop eating", "do not consume"
+    ]
+
+    for phrase in action_phrases:
+        cleaned = cleaned.replace(phrase, "").strip()
+
+    # Remove extra whitespace
+    cleaned = " ".join(cleaned.split())
+
+    # If cleaned result is empty or too short, return original
+    if not cleaned or len(cleaned) < 3:
+        return original
+
+    # If the cleaned text still contains action words, try to extract noun phrases
+    action_words = ["avoid", "stop", "reduce", "बंद", "परहेज", "कम", "न"]
+    words = cleaned.split()
+    filtered_words = []
+    for word in words:
+        if word not in action_words:
+            filtered_words.append(word)
+
+    final = " ".join(filtered_words).strip()
+
+    # Capitalize first letter for better readability
+    if final:
+        return final[0].upper() + final[1:]
+    else:
+        return original
+
 def generate_checkin_templates_from_visit(visit_data: dict, visit_id: str) -> list[dict]:
     """
     Generate 3 daily check-in question templates for the follow-up period.
@@ -625,10 +674,11 @@ def generate_checkin_templates_from_visit(visit_data: dict, visit_id: str) -> li
     # Priority 2: Diet restrictions (fill remaining slots)
     if len(templates) < 3:
         for restriction in diet_restrictions:
-            restriction = restriction.strip()
-            if restriction and restriction not in used_texts:
-                q_hi = f"Kya aaj aapne {restriction} se parhej kiya?"
-                q_en = f"Did you avoid {restriction} today?"
+            original_restriction = restriction.strip()
+            cleaned_restriction = clean_diet_restriction(original_restriction)
+            if cleaned_restriction and cleaned_restriction not in used_texts:
+                q_hi = f"Kya aaj aapne {cleaned_restriction} se parhej kiya?"
+                q_en = f"Did you avoid {cleaned_restriction} today?"
                 templates.append({
                     "id": f"qdiet-{visit_id}-{len(templates)}",
                     "question_hi": q_hi,
@@ -637,7 +687,7 @@ def generate_checkin_templates_from_visit(visit_data: dict, visit_id: str) -> li
                     "day_end": followup_days,
                     "herb_name": None,
                 })
-                used_texts.add(restriction)
+                used_texts.add(cleaned_restriction)
                 if len(templates) >= 3:
                     break
 
@@ -719,19 +769,34 @@ async def list_visits(patient_id: Optional[str] = None):
     else:
         rows = db.execute("SELECT * FROM visits ORDER BY created_at DESC").fetchall()
     db.close()
-    
+
     visits = []
     for r in rows:
+        # Generate auto title as formatted date/time
+        try:
+            # Parse created_at (ISO format) and format as readable date/time
+            from datetime import datetime
+            dt = datetime.fromisoformat(r["created_at"].replace('Z', '+00:00'))
+            title = dt.strftime("%I:%M %p · %b %d, %Y")  # e.g., "10:20 AM · Apr 27, 2026"
+        except:
+            title = r["visit_date"] or "Unknown Date"
+
+        # Count herbs for additional info if needed
+        extracted = json.loads(r["extracted_json"]) if r["extracted_json"] else {}
+        herbs_count = len(extracted.get("herbs", [])) if extracted else 0
+
         visits.append({
             "id": r["id"],
+            "title": title,  # Formatted date/time
             "patient_id": r["patient_id"],
             "visit_date": r["visit_date"],
             "status": r["status"],
             "followup_days": r["followup_days"],
             "diagnosis_ayurveda": r["diagnosis_ayurveda"],
-            "extracted_json": json.loads(r["extracted_json"]) if r["extracted_json"] else None,
+            "extracted_json": extracted,  # Contains the summary dictation data
             "needs_review": json.loads(r["needs_review"]) if r["needs_review"] else [],
             "created_at": r["created_at"],
+            "herbs_count": herbs_count,  # Additional info
         })
     return {"success": True, "visits": visits}
 
